@@ -18,7 +18,9 @@ package vault_test
 import (
 	"context"
 	"crypto/x509"
+	"encoding/asn1"
 	"errors"
+	"github.com/globalsign/est"
 	"reflect"
 	"testing"
 	"time"
@@ -98,69 +100,66 @@ func TestCACerts(t *testing.T) {
 	}
 }
 
-//func TestCSRAttrs(t *testing.T) {
-//	t.Parallel()
-//
-//	ca, err := mockca.NewTransient()
-//	if err != nil {
-//		t.Fatalf("failed to create mock CA: %v", err)
-//	}
-//
-//	var testcases = []struct {
-//		aps  string
-//		want est.CSRAttrs
-//		err  error
-//	}{
-//		{
-//			aps:  "anything",
-//			want: est.CSRAttrs{},
-//		},
-//		{
-//			aps: "csrattrs",
-//			want: est.CSRAttrs{
-//				OIDs: []asn1.ObjectIdentifier{
-//					{1, 2, 840, 113549, 1, 9, 7},
-//					{1, 2, 840, 10045, 4, 3, 3},
-//				},
-//				Attributes: []est.Attribute{
-//					{
-//						Type:   asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 14},
-//						Values: est.AttributeValueSET{asn1.ObjectIdentifier{1, 3, 6, 1, 1, 1, 1, 22}},
-//					},
-//					{
-//						Type:   asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1},
-//						Values: est.AttributeValueSET{asn1.ObjectIdentifier{1, 3, 132, 0, 34}},
-//					},
-//				},
-//			},
-//		},
-//		{
-//			aps: "triggererrors",
-//			err: errors.New("triggered error"),
-//		},
-//	}
-//
-//	for _, tc := range testcases {
-//		tc := tc
-//
-//		t.Run(tc.aps, func(t *testing.T) {
-//			t.Parallel()
-//
-//			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-//			defer cancel()
-//
-//			got, err := ca.CSRAttrs(ctx, tc.aps, nil)
-//			if !reflect.DeepEqual(err, tc.err) {
-//				t.Fatalf("got error %v, want %v", err, tc.err)
-//			}
-//
-//			if !reflect.DeepEqual(got, tc.want) {
-//				t.Fatalf("got %v, want %v", got, tc.want)
-//			}
-//		})
-//	}
-//}
-//
+func TestCSRAttrs(t *testing.T) {
+	t.Parallel()
+
+	ca := &vault.VaultCA{}
+
+	var testcases = []struct {
+		aps  string
+		want est.CSRAttrs
+		err  error
+	}{
+		{
+			aps:  "anything",
+			want: est.CSRAttrs{},
+		},
+		{
+			aps: "csrattrs",
+			want: est.CSRAttrs{
+				OIDs: []asn1.ObjectIdentifier{
+					{1, 2, 840, 113549, 1, 9, 7},
+					{1, 2, 840, 10045, 4, 3, 3},
+				},
+				Attributes: []est.Attribute{
+					{
+						Type:   asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 14},
+						Values: est.AttributeValueSET{asn1.ObjectIdentifier{1, 3, 6, 1, 1, 1, 1, 22}},
+					},
+					{
+						Type:   asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1},
+						Values: est.AttributeValueSET{asn1.ObjectIdentifier{1, 3, 132, 0, 34}},
+					},
+				},
+			},
+		},
+		{
+			aps: "triggererrors",
+			err: errors.New("triggered error"),
+		},
+	}
+
+	for _, tc := range testcases {
+		tc := tc
+
+		t.Run(tc.aps, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			got, err := ca.CSRAttrs(ctx, tc.aps, nil)
+			if !reflect.DeepEqual(err, tc.err) {
+				t.Fatalf("got error %v, want %v", err, tc.err)
+			}
+
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 //func TestEnrollReenroll(t *testing.T) {
 //	t.Parallel()
 //
