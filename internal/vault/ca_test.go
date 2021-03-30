@@ -16,8 +16,13 @@ limitations under the License.
 package vault_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
 	"github.com/globalsign/est"
@@ -160,127 +165,124 @@ func TestCSRAttrs(t *testing.T) {
 	}
 }
 
-//func TestEnrollReenroll(t *testing.T) {
-//	t.Parallel()
-//
-//	ca, err := mockca.NewTransient()
-//	if err != nil {
-//		t.Fatalf("failed to create mock CA: %v", err)
-//	}
-//
-//	var testcases = []struct {
-//		aps string
-//		cn  string
-//		err error
-//	}{
-//		{
-//			aps: "anything",
-//			cn:  "John Doe",
-//		},
-//		{
-//			aps: "triggererrors",
-//			cn:  "Trigger Error Forbidden",
-//			err: errors.New("triggered forbidden response"),
-//		},
-//		{
-//			aps: "triggererrors",
-//			cn:  "Trigger Error Deferred",
-//			err: errors.New("triggered deferred response"),
-//		},
-//		{
-//			aps: "triggererrors",
-//			cn:  "Trigger Error Unknown",
-//			err: errors.New("triggered error"),
-//		},
-//	}
-//
-//	for _, tc := range testcases {
-//		tc := tc
-//
-//		t.Run(tc.aps, func(t *testing.T) {
-//			t.Parallel()
-//
-//			// Build CSR.
-//			tmpl := &x509.CertificateRequest{
-//				Subject:  pkix.Name{CommonName: tc.cn},
-//				DNSNames: []string{"john.doe.domain"},
-//			}
-//
-//			key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-//			if err != nil {
-//				t.Fatalf("failed to generate private key: %v", err)
-//			}
-//
-//			der, err := x509.CreateCertificateRequest(rand.Reader, tmpl, key)
-//			if err != nil {
-//				t.Fatalf("failed to create certificate request: %v", err)
-//			}
-//
-//			csr, err := x509.ParseCertificateRequest(der)
-//			if err != nil {
-//				t.Fatalf("failed to parse certificate request: %v", err)
-//			}
-//
-//			// Enroll.
-//			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-//			defer cancel()
-//
-//			got, err := ca.Enroll(ctx, csr, tc.aps, nil)
-//			if (err == nil) != (tc.err == nil) {
-//				t.Fatalf("got error %v, want %v", err, tc.err)
-//			}
-//
-//			if err != nil {
-//				if err.Error() != tc.err.Error() {
-//					t.Fatalf("got error text %q, want %q", err.Error(), tc.err.Error())
-//				}
-//
-//				return
-//			}
-//
-//			// Verify received certificate against CA certificates.
-//			opts := x509.VerifyOptions{
-//				Intermediates: x509.NewCertPool(),
-//				Roots:         x509.NewCertPool(),
-//				CurrentTime:   time.Now(),
-//				KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-//			}
-//
-//			cacerts, err := ca.CACerts(ctx, tc.aps, nil)
-//			if err != nil {
-//				t.Fatalf("failed to get CA certificates: %v", err)
-//			}
-//
-//			for i, cert := range cacerts {
-//				if i == len(cacerts)-1 {
-//					opts.Roots.AddCert(cert)
-//				} else {
-//					opts.Intermediates.AddCert(cert)
-//				}
-//			}
-//
-//			if _, err := got.Verify(opts); err != nil {
-//				t.Fatalf("failed to verify certificate: %v", err)
-//			}
-//
-//			// Check subject and SAN agree with CSR.
-//			if !bytes.Equal(got.RawSubject, csr.RawSubject) {
-//				t.Fatalf("got subject %s, want %s", got.Subject.String(), csr.Subject.String())
-//			}
-//
-//			if !reflect.DeepEqual(got.DNSNames, csr.DNSNames) {
-//				t.Fatalf("got DNS names %v, want %v", got.DNSNames, csr.DNSNames)
-//			}
-//
-//			// Reenroll with received certificate.
-//			_, err = ca.Reenroll(ctx, got, csr, tc.aps, nil)
-//			if err != nil {
-//				t.Fatalf("failed to reenroll: %v", err)
-//			}
-//		})
-//	}
-//}
-//
+func TestEnrollReenroll(t *testing.T) {
+	t.Parallel()
+
+	ca := &vault.VaultCA{}
+
+	var testcases = []struct {
+		aps string
+		cn  string
+		err error
+	}{
+		{
+			aps: "anything",
+			cn:  "John Doe",
+		},
+		{
+			aps: "triggererrors",
+			cn:  "Trigger Error Forbidden",
+			err: errors.New("triggered forbidden response"),
+		},
+		{
+			aps: "triggererrors",
+			cn:  "Trigger Error Deferred",
+			err: errors.New("triggered deferred response"),
+		},
+		{
+			aps: "triggererrors",
+			cn:  "Trigger Error Unknown",
+			err: errors.New("triggered error"),
+		},
+	}
+
+	for _, tc := range testcases {
+		tc := tc
+
+		t.Run(tc.aps, func(t *testing.T) {
+			t.Parallel()
+
+			// Build CSR.
+			tmpl := &x509.CertificateRequest{
+				Subject:  pkix.Name{CommonName: tc.cn},
+				DNSNames: []string{"john.doe.domain"},
+			}
+
+			key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			if err != nil {
+				t.Fatalf("failed to generate private key: %v", err)
+			}
+
+			der, err := x509.CreateCertificateRequest(rand.Reader, tmpl, key)
+			if err != nil {
+				t.Fatalf("failed to create certificate request: %v", err)
+			}
+
+			csr, err := x509.ParseCertificateRequest(der)
+			if err != nil {
+				t.Fatalf("failed to parse certificate request: %v", err)
+			}
+
+			// Enroll.
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			got, err := ca.Enroll(ctx, csr, tc.aps, nil)
+			if (err == nil) != (tc.err == nil) {
+				t.Fatalf("got error %v, want %v", err, tc.err)
+			}
+
+			if err != nil {
+				if err.Error() != tc.err.Error() {
+					t.Fatalf("got error text %q, want %q", err.Error(), tc.err.Error())
+				}
+
+				return
+			}
+
+			// Verify received certificate against CA certificates.
+			opts := x509.VerifyOptions{
+				Intermediates: x509.NewCertPool(),
+				Roots:         x509.NewCertPool(),
+				CurrentTime:   time.Now(),
+				KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+			}
+
+			cacerts, err := ca.CACerts(ctx, tc.aps, nil)
+			if err != nil {
+				t.Fatalf("failed to get CA certificates: %v", err)
+			}
+
+			for i, cert := range cacerts {
+				if i == len(cacerts)-1 {
+					opts.Roots.AddCert(cert)
+				} else {
+					opts.Intermediates.AddCert(cert)
+				}
+			}
+
+			if _, err := got.Verify(opts); err != nil {
+				t.Fatalf("failed to verify certificate: %v", err)
+			}
+
+			// Check subject and SAN agree with CSR.
+			if !bytes.Equal(got.RawSubject, csr.RawSubject) {
+				t.Fatalf("got subject %s, want %s", got.Subject.String(), csr.Subject.String())
+			}
+
+			if !reflect.DeepEqual(got.DNSNames, csr.DNSNames) {
+				t.Fatalf("got DNS names %v, want %v", got.DNSNames, csr.DNSNames)
+			}
+
+			// Reenroll with received certificate.
+			_, err = ca.Reenroll(ctx, got, csr, tc.aps, nil)
+			if err != nil {
+				t.Fatalf("failed to reenroll: %v", err)
+			}
+		})
+	}
+}
+
 //func TestServerKeyGen(t *testing.T) {
 //	t.Parallel()
 //
