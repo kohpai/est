@@ -21,12 +21,16 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
 	"github.com/globalsign/est"
+	"go.mozilla.org/pkcs7"
+	"net/http"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -34,8 +38,8 @@ import (
 )
 
 const (
-	testTimeout = time.Second * 60
-	//serverKeyGenPassword = "pseudohistorical"
+	testTimeout          = time.Second * 60
+	serverKeyGenPassword = "pseudohistorical"
 )
 
 func TestCACerts(t *testing.T) {
@@ -283,155 +287,158 @@ func TestEnrollReenroll(t *testing.T) {
 	}
 }
 
-//func TestServerKeyGen(t *testing.T) {
-//	t.Parallel()
-//
-//	ca, err := mockca.NewTransient()
-//	if err != nil {
-//		t.Fatalf("failed to create mock CA: %v", err)
-//	}
-//
-//	var testcases = []struct {
-//		aps     string
-//		cn      string
-//		bitsize int
-//		err     error
-//	}{
-//		{
-//			aps: "anything",
-//			cn:  "John Doe",
-//		},
-//		{
-//			aps:     "pkcs7",
-//			bitsize: 3072,
-//			cn:      "Jane Doe",
-//		},
-//		{
-//			aps: "triggererrors",
-//			cn:  "Trigger Error Unknown",
-//			err: errors.New("triggered error"),
-//		},
-//		{
-//			aps:     "anything",
-//			cn:      "Try this on for size",
-//			bitsize: 42,
-//			err:     errors.New("invalid bit size value"),
-//		},
-//	}
-//
-//	for _, tc := range testcases {
-//		tc := tc
-//
-//		t.Run(tc.aps, func(t *testing.T) {
-//			t.Parallel()
-//
-//			// Build CSR.
-//			tmpl := &x509.CertificateRequest{
-//				Subject:  pkix.Name{CommonName: tc.cn},
-//				DNSNames: []string{"john.doe.domain"},
-//			}
-//
-//			key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-//			if err != nil {
-//				t.Fatalf("failed to generate private key: %v", err)
-//			}
-//
-//			der, err := x509.CreateCertificateRequest(rand.Reader, tmpl, key)
-//			if err != nil {
-//				t.Fatalf("failed to create certificate request: %v", err)
-//			}
-//
-//			csr, err := x509.ParseCertificateRequest(der)
-//			if err != nil {
-//				t.Fatalf("failed to parse certificate request: %v", err)
-//			}
-//
-//			var r *http.Request
-//			if tc.bitsize != 0 {
-//				r = &http.Request{
-//					Header: map[string][]string{
-//						"Bit-Size": {strconv.Itoa(tc.bitsize)},
-//					},
-//				}
-//			}
-//
-//			// Request certificate and private key.
-//			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-//			defer cancel()
-//
-//			got, keyDER, err := ca.ServerKeyGen(ctx, csr, tc.aps, r)
-//			if (err == nil) != (tc.err == nil) {
-//				t.Fatalf("got error %v, want %v", err, tc.err)
-//			}
-//
-//			if err != nil {
-//				if err.Error() != tc.err.Error() {
-//					t.Fatalf("got error text %q, want %q", err.Error(), tc.err.Error())
-//				}
-//
-//				return
-//			}
-//
-//			// Retrieve private key from returned bytes.
-//			var privKey interface{}
-//
-//			if p8, err := x509.ParsePKCS8PrivateKey(keyDER); err == nil {
-//				privKey = p8
-//			} else if p7, err := pkcs7.Parse(keyDER); err == nil {
-//				der, err := p7.DecryptUsingPSK([]byte(serverKeyGenPassword))
-//				if err != nil {
-//					t.Fatalf("failed to decrypt CMS EnvelopedData: %v", err)
-//				}
-//
-//				sd, err := pkcs7.Parse(der)
-//				if err != nil {
-//					t.Fatalf("failed to parse CMS SignedData: %v", err)
-//				}
-//
-//				privKey, err = x509.ParsePKCS8PrivateKey(sd.Content)
-//				if err != nil {
-//					t.Fatalf("failed to parse private key: %v", err)
-//				}
-//			} else {
-//				t.Fatalf("failed to parse server generated private key")
-//			}
-//
-//			// Extract public key from private key.
-//			var pubKey interface{}
-//			var bitsize int
-//			var wantBitsize int
-//			switch k := privKey.(type) {
-//			case *rsa.PrivateKey:
-//				pubKey = k.Public()
-//				bitsize = k.PublicKey.Size() * 8
-//				wantBitsize = 2048
-//
-//			case *ecdsa.PrivateKey:
-//				pubKey = k.Public()
-//				bitsize = k.PublicKey.Curve.Params().BitSize
-//				wantBitsize = 256
-//
-//			default:
-//				t.Fatalf("unexpected private key type: %T", k)
-//			}
-//
-//			// Ensure public key corresponding with server generated private
-//			// key was the one included in the certificate.
-//			if !reflect.DeepEqual(pubKey, got.PublicKey) {
-//				t.Fatalf("received public keys doesn't match certificate")
-//			}
-//
-//			// Verify the bit size of the returned key.
-//			if tc.bitsize != 0 {
-//				wantBitsize = tc.bitsize
-//			}
-//
-//			if bitsize != wantBitsize {
-//				t.Fatalf("got bit size %d, want %d", bitsize, wantBitsize)
-//			}
-//		})
-//	}
-//}
+func TestServerKeyGen(t *testing.T) {
+	t.Parallel()
+
+	ca := &vault.VaultCA{}
+
+	var testcases = []struct {
+		aps     string
+		cn      string
+		bitsize int
+		err     error
+	}{
+		{
+			aps: "anything",
+			cn:  "John Doe",
+		},
+		//{
+		//	aps:     "pkcs7",
+		//	bitsize: 3072,
+		//	cn:      "Jane Doe",
+		//},
+		{
+			aps:     "",
+			bitsize: 3072,
+			cn:      "Jane Doe",
+		},
+		{
+			aps: "triggererrors",
+			cn:  "Trigger Error Unknown",
+			err: errors.New("triggered error"),
+		},
+		{
+			aps:     "anything",
+			cn:      "Try this on for size",
+			bitsize: 42,
+			err:     errors.New("invalid bit size value"),
+		},
+	}
+
+	for _, tc := range testcases {
+		tc := tc
+
+		t.Run(tc.aps, func(t *testing.T) {
+			t.Parallel()
+
+			// Build CSR.
+			tmpl := &x509.CertificateRequest{
+				Subject:  pkix.Name{CommonName: tc.cn},
+				DNSNames: []string{"john.doe.domain"},
+			}
+
+			key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			if err != nil {
+				t.Fatalf("failed to generate private key: %v", err)
+			}
+
+			der, err := x509.CreateCertificateRequest(rand.Reader, tmpl, key)
+			if err != nil {
+				t.Fatalf("failed to create certificate request: %v", err)
+			}
+
+			csr, err := x509.ParseCertificateRequest(der)
+			if err != nil {
+				t.Fatalf("failed to parse certificate request: %v", err)
+			}
+
+			var r *http.Request
+			if tc.bitsize != 0 {
+				r = &http.Request{
+					Header: map[string][]string{
+						"Bit-Size": {strconv.Itoa(tc.bitsize)},
+					},
+				}
+			}
+
+			// Request certificate and private key.
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			got, keyDER, err := ca.ServerKeyGen(ctx, csr, tc.aps, r)
+			if (err == nil) != (tc.err == nil) {
+				t.Fatalf("got error %v, want %v", err, tc.err)
+			}
+
+			if err != nil {
+				if err.Error() != tc.err.Error() {
+					t.Fatalf("got error text %q, want %q", err.Error(), tc.err.Error())
+				}
+
+				return
+			}
+
+			// Retrieve private key from returned bytes.
+			var privKey interface{}
+
+			if p8, err := x509.ParsePKCS8PrivateKey(keyDER); err == nil {
+				privKey = p8
+			} else if p7, err := pkcs7.Parse(keyDER); err == nil {
+				der, err := p7.DecryptUsingPSK([]byte(serverKeyGenPassword))
+				if err != nil {
+					t.Fatalf("failed to decrypt CMS EnvelopedData: %v", err)
+				}
+
+				sd, err := pkcs7.Parse(der)
+				if err != nil {
+					t.Fatalf("failed to parse CMS SignedData: %v", err)
+				}
+
+				privKey, err = x509.ParsePKCS8PrivateKey(sd.Content)
+				if err != nil {
+					t.Fatalf("failed to parse private key: %v", err)
+				}
+			} else {
+				t.Fatalf("failed to parse server generated private key")
+			}
+
+			// Extract public key from private key.
+			var pubKey interface{}
+			var bitsize int
+			var wantBitsize int
+			switch k := privKey.(type) {
+			case *rsa.PrivateKey:
+				pubKey = k.Public()
+				bitsize = k.PublicKey.Size() * 8
+				wantBitsize = 2048
+
+			case *ecdsa.PrivateKey:
+				pubKey = k.Public()
+				bitsize = k.PublicKey.Curve.Params().BitSize
+				wantBitsize = 256
+
+			default:
+				t.Fatalf("unexpected private key type: %T", k)
+			}
+
+			// Ensure public key corresponding with server generated private
+			// key was the one included in the certificate.
+			if !reflect.DeepEqual(pubKey, got.PublicKey) {
+				t.Fatalf("received public keys doesn't match certificate")
+			}
+
+			// Verify the bit size of the returned key.
+			if tc.bitsize != 0 {
+				wantBitsize = tc.bitsize
+			}
+
+			if bitsize != wantBitsize {
+				t.Fatalf("got bit size %d, want %d", bitsize, wantBitsize)
+			}
+		})
+	}
+}
+
 //
 //func TestTPMEnroll(t *testing.T) {
 //	t.Parallel()
