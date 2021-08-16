@@ -50,8 +50,8 @@ const (
 
 // Add adds a set of CA certificates to the cache. The operation is performed
 // asynchronously and the method returns immediately..
-func (c *cacertCache) Add(aps string, certs []*x509.Certificate) {
-	go c.addSync(aps, certs)
+func (c *cacertCache) Add(aps string, certs []*x509.Certificate, r *http.Request) {
+	go c.addSync(aps, certs, r)
 }
 
 // Verify verifies a certificate against the cached CA certificates for the
@@ -89,7 +89,7 @@ func (c *cacertCache) Verify(
 // addSync synchonrously adds a set of CA certificates to the cache. If
 // a sufficiently fresh entry is already in the cache, it is returned,
 // otherwise a new entry is added and returned.
-func (c *cacertCache) addSync(aps string, certs []*x509.Certificate) cacheEntry {
+func (c *cacertCache) addSync(aps string, certs []*x509.Certificate, r *http.Request) cacheEntry {
 	// Acquire a read lock to check for an existing entry.
 	c.mutex.RLock()
 	current, ok := c.cache[aps]
@@ -110,11 +110,15 @@ func (c *cacertCache) addSync(aps string, certs []*x509.Certificate) cacheEntry 
 			if roots == nil {
 				roots = x509.NewCertPool()
 			}
+			pem := base64Encode(cert.Raw)
+			LoggerFromContext(r.Context()).Infof("root CA certificate:\n%s", pem)
 			roots.AddCert(cert)
 		} else {
 			if inters == nil {
 				inters = x509.NewCertPool()
 			}
+			pem := base64Encode(cert.Raw)
+			LoggerFromContext(r.Context()).Infof("intermediate CA certificate:\n%s", pem)
 			inters.AddCert(cert)
 		}
 	}
@@ -163,7 +167,7 @@ func (c *cacertCache) get(ctx context.Context, aps string, r *http.Request) (cac
 		return cacheEntry{}, fmt.Errorf("failed to retrieve CA certificates: %w", err)
 	}
 
-	return c.addSync(aps, certs), nil
+	return c.addSync(aps, certs, r), nil
 }
 
 // newCACertCache creates a new CA certificate cache.

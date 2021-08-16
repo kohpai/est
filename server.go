@@ -258,7 +258,7 @@ func cacerts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update CA certificates cache with each explicit call to /cacerts.
-	certCacheFromContext(ctx).Add(aps, certs)
+	certCacheFromContext(ctx).Add(aps, certs, r)
 
 	writeResponse(w, mimeTypePKCS7, true, certs)
 }
