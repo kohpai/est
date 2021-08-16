@@ -76,6 +76,7 @@ func (c *cacertCache) Verify(
 	}
 
 	if _, err := cert.Verify(opts); err != nil {
+		LoggerFromContext(r.Context()).Errorf("failed to verify CA certificate: %v", err)
 		return errInvalidClientCert
 	}
 
